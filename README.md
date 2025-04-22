@@ -45,9 +45,6 @@ The core idea: ensure that **noise prediction functions** inherit equivariance f
 - Improved naturalness for actions like **yoga poses**, **walking**, and **dancing**.
 - Less frame-wise noise compared to baseline MDM.
 
-<div align="center">
-  <img src="https://via.placeholder.com/800x250.png?text=Generated+Motions" alt="Generated Motions" />
-</div>
 
 > **Motion Sequences:** Symmetric motions generated for text prompts like "person performing tree pose" and "person walking straight then running."
 
