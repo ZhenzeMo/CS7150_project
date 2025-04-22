@@ -16,7 +16,7 @@ The core idea: ensure that **noise prediction functions** inherit equivariance f
 ## Model Architecture
 
 <div align="center">
-  <img src="https://via.placeholder.com/800x250.png?text=EquiMDM+Model+Overview" alt="EquiMDM Model Overview" />
+  <img src="img_results/EquiModel.jpg" alt="EquiMDM Model Overview" />
 </div>
 
 > **Figure:** (Left) Overview of the Equivariant Motion Diffusion Model (EquiMDM). (Right) Sampling process illustrating denoising over steps.
@@ -52,6 +52,7 @@ The core idea: ensure that **noise prediction functions** inherit equivariance f
 > **Motion Sequences:** Symmetric motions generated for text prompts like "person performing tree pose" and "person walking straight then running."
 
 ### 📽️ [Video Demonstrations](https://drive.google.com/file/d/1Fr7BHyP2UNubiZE0L-a3Gdmn5OlCmONn/view?usp=sharing)
+!
 
 ### 📽️ [Comparison with MDM](https://drive.google.com/file/d/1u8fjVtcjjZ-nJtC8bDzT-8AXV-xRCV2R/view?usp=sharing)
 
