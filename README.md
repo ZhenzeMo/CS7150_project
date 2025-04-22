@@ -52,9 +52,22 @@ The core idea: ensure that **noise prediction functions** inherit equivariance f
 > **Motion Sequences:** Symmetric motions generated for text prompts like "person performing tree pose" and "person walking straight then running."
 
 ### 📽️ [Video Demonstrations](https://drive.google.com/file/d/1Fr7BHyP2UNubiZE0L-a3Gdmn5OlCmONn/view?usp=sharing)
-!
+![Sample 500k](img_results/500k_sample1.gif)
 
+---
 ### 📽️ [Comparison with MDM](https://drive.google.com/file/d/1u8fjVtcjjZ-nJtC8bDzT-8AXV-xRCV2R/view?usp=sharing)
+#### 🏊 Swim
+- MDM:
+  ![Swim MDM](img_results/swim_mdm.gif)
+- Equivariant:
+  ![Swim Equi](img_results/swim.gif)
+
+#### 🌳 Tree Pose
+- MDM:
+  ![Tree Pose MDM](img_results/tree_MDM.gif)
+- Equivariant:
+  ![Tree Pose Equi](img_results/tree_Equi.gif)
+
 
 ---
 ## Conclusion
