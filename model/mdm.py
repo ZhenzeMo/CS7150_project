@@ -6,6 +6,8 @@ import clip
 from model.rotation2xyz import Rotation2xyz
 from model.BERT.BERT_encoder import load_bert
 from utils.misc import WeightedSum
+from e3nn import o3
+from e3nn.o3 import Linear
 
 
 class MDM(nn.Module):
@@ -48,7 +50,8 @@ class MDM(nn.Module):
         self.mask_frames = kargs.get('mask_frames', False)
         self.arch = arch
         self.gru_emb_dim = self.latent_dim if self.arch == 'gru' else 0
-        self.input_process = InputProcess(self.data_rep, self.input_feats+self.gru_emb_dim, self.latent_dim)
+        # self.input_process = InputProcess(self.data_rep, self.input_feats+self.gru_emb_dim, self.latent_dim)
+        self.input_process = EquivariantInputProcess(self.data_rep, self.input_feats+self.gru_emb_dim, self.latent_dim)
 
         self.emb_policy = kargs.get('emb_policy', 'add')
 
@@ -129,8 +132,9 @@ class MDM(nn.Module):
                 self.embed_action = EmbedAction(self.num_actions, self.latent_dim)
                 print('EMBED ACTION')
 
-        self.output_process = OutputProcess(self.data_rep, self.input_feats, self.latent_dim, self.njoints,
-                                            self.nfeats)
+        # self.output_process = OutputProcess(self.data_rep, self.input_feats, self.latent_dim, self.njoints,
+        #                                     self.nfeats)
+        self.output_process = EquivariantOutputProcess(self.data_rep, self.input_feats, self.latent_dim, self.njoints, self.nfeats)
 
         self.rot2xyz = Rotation2xyz(device='cpu', dataset=self.dataset)
 
@@ -356,6 +360,144 @@ class InputProcess(nn.Module):
         else:
             raise ValueError
 
+# class EquivariantInputProcess(nn.Module):
+#     def __init__(self, data_rep, input_feats, latent_dim):
+#         super().__init__()
+#         self.data_rep = data_rep
+#         self.input_feats = input_feats
+#         self.latent_dim = latent_dim
+        
+#         # Define the input and output representations
+#         # These are based on the specific format of the input data
+#         # For example, joint positions (xyz) or rotations (rot6d)
+        
+#         if data_rep == 'xyz':
+#             # For joint positions as 3D vectors (x, y, z), use L=1 irreducible representations
+#             self.irreps_in = o3.Irreps(f"{input_feats//3}x1o")  # Each joint has 3 coordinates (x, y, z)
+#             self.irreps_out = o3.Irreps(f"{latent_dim//3}x1o + {latent_dim//3}x0e")  # Output includes scalars and vectors
+#         elif data_rep == 'rot6d':
+#             # For 6D rotation representation, treat it as containing components of L=0, L=1, and L=2
+#             self.irreps_in = o3.Irreps(f"{input_feats//6}x0e + {input_feats//6}x1o + {input_feats//6}x2e")
+#             self.irreps_out = o3.Irreps(f"{latent_dim//3}x0e + {latent_dim//3}x1o + {latent_dim//3}x2e")
+#         elif data_rep == 'hml_vec':
+#             # Assume HumanML3D vectors include multiple types of features
+#             self.irreps_in = o3.Irreps(f"{input_feats//3}x1o + {input_feats//3}x0e")
+#             self.irreps_out = o3.Irreps(f"{latent_dim//2}x0e + {latent_dim//2}x1o")
+#         else:
+#             # For unknown data formats, treat all features as scalars
+#             self.irreps_in = o3.Irreps(f"{input_feats}x0e")
+#             self.irreps_out = o3.Irreps(f"{latent_dim}x0e")
+            
+#         # Create the equivariant linear layer
+#         self.poseEmbedding = Linear(
+#             irreps_in=self.irreps_in,
+#             irreps_out=self.irreps_out,
+#             biases=True
+#         )
+        
+#         # If the data representation is rotation velocity, create an additional velocity embedding layer
+#         if self.data_rep == 'rot_vel':
+#             self.velEmbedding = Linear(
+#                 irreps_in=self.irreps_in,
+#                 irreps_out=self.irreps_out,
+#                 biases=True
+#             )
+        
+#         # A standard linear layer to map equivariant features into a transformer-friendly format
+#         self.to_transformer = nn.Linear(self.irreps_out.dim, self.latent_dim)
+
+#     def reshape_for_e3nn(self, x):
+#         """Reshape tensor to the format suitable for e3nn processing"""
+#         bs, njoints, nfeats, nframes = x.shape
+        
+#         # Different reshape strategies depending on the data representation
+#         if self.data_rep == 'xyz':
+#             # For xyz data, organize joint positions into vector form
+#             # Assume each joint has 3 coordinates
+#             x = x.permute((3, 0, 1, 2))  # [nframes, bs, njoints, nfeats]
+#             return x.reshape(nframes, bs, -1)  # [nframes, bs, njoints*nfeats]
+#         else:
+#             # General case for other representations
+#             x = x.permute((3, 0, 1, 2)).reshape(nframes, bs, njoints*nfeats)
+#             return x
+
+#     def forward(self, x):
+#         bs, njoints, nfeats, nframes = x.shape
+#         x = self.reshape_for_e3nn(x)  # [nframes, bs, features]
+
+#         if self.data_rep in ['rot6d', 'xyz', 'hml_vec']:
+#             # Apply equivariant layer
+#             x = self.poseEmbedding(x)  # [nframes, bs, irreps_out.dim]
+#             # Convert to transformer-compatible format
+#             x = self.to_transformer(x)  # [nframes, bs, latent_dim]
+#             return x
+#         elif self.data_rep == 'rot_vel':
+#             # Special handling for rotation velocity: process first frame separately
+#             first_pose = x[[0]]  # [1, bs, features]
+#             first_pose = self.poseEmbedding(first_pose)  # [1, bs, irreps_out.dim]
+#             first_pose = self.to_transformer(first_pose)  # [1, bs, latent_dim]
+            
+#             vel = x[1:]  # [nframes-1, bs, features]
+#             vel = self.velEmbedding(vel)  # [nframes-1, bs, irreps_out.dim]
+#             vel = self.to_transformer(vel)  # [nframes-1, bs, latent_dim]
+            
+#             return torch.cat((first_pose, vel), axis=0)  # [nframes, bs, latent_dim]
+#         else:
+#             raise ValueError(f"Unsupported data representation: {self.data_rep}")
+
+class EquivariantInputProcess(nn.Module):
+    def __init__(self, data_rep, input_feats, latent_dim):
+        super().__init__()
+        self.data_rep = data_rep
+        self.input_feats = input_feats
+        self.latent_dim = latent_dim
+        
+        print(f"Data rep: {data_rep}, Input feats: {input_feats}, Latent dim: {latent_dim}")
+        
+        # Use a safer scalar representation
+        self.irreps_in = o3.Irreps(f"{input_feats}x0e")  # Treat everything as scalars
+        self.irreps_out = o3.Irreps(f"{latent_dim}x0e")  # Output also as scalars
+            
+        # Create equivariant linear layer
+        self.poseEmbedding = Linear(
+            irreps_in=self.irreps_in,
+            irreps_out=self.irreps_out,
+            biases=True
+        )
+        
+        if self.data_rep == 'rot_vel':
+            self.velEmbedding = Linear(
+                irreps_in=self.irreps_in,
+                irreps_out=self.irreps_out,
+                biases=True
+            )
+        
+        # Standard linear layer to transform to transformer format - no longer needed since output already has correct dimensions
+        # self.to_transformer = nn.Linear(self.irreps_out.dim, self.latent_dim)
+
+    def forward(self, x):
+        bs, njoints, nfeats, nframes = x.shape
+        print(f"Input shape: bs={bs}, njoints={njoints}, nfeats={nfeats}, nframes={nframes}")
+        print(f"Total input_feats: {self.input_feats}")
+        
+        # Simplified reshape logic, no distinction between different data representations
+        x = x.permute((3, 0, 1, 2)).reshape(nframes, bs, njoints*nfeats)
+        print(f"Reshaped x shape: {x.shape}")
+
+        if self.data_rep in ['rot6d', 'xyz', 'hml_vec']:
+            # Apply equivariant layer
+            x = self.poseEmbedding(x)  # [nframes, bs, latent_dim]
+            return x
+        elif self.data_rep == 'rot_vel':
+            first_pose = x[[0]]  # [1, bs, features]
+            first_pose = self.poseEmbedding(first_pose)  # [1, bs, latent_dim]
+            
+            vel = x[1:]  # [nframes-1, bs, features]
+            vel = self.velEmbedding(vel)  # [nframes-1, bs, latent_dim]
+            
+            return torch.cat((first_pose, vel), axis=0)  # [nframes, bs, latent_dim]
+        else:
+            raise ValueError(f"Unsupported data representation: {self.data_rep}")
 
 class OutputProcess(nn.Module):
     def __init__(self, data_rep, input_feats, latent_dim, njoints, nfeats):
@@ -385,6 +527,130 @@ class OutputProcess(nn.Module):
         output = output.permute(1, 2, 3, 0)  # [bs, njoints, nfeats, nframes]
         return output
 
+# class EquivariantOutputProcess(nn.Module):
+#     def __init__(self, data_rep, input_feats, latent_dim, njoints, nfeats):
+#         super().__init__()
+#         self.data_rep = data_rep
+#         self.input_feats = input_feats
+#         self.latent_dim = latent_dim
+#         self.njoints = njoints
+#         self.nfeats = nfeats
+        
+#         # 从transformer转换为等变表示的层
+#         self.from_transformer = nn.Linear(self.latent_dim, self.latent_dim)
+        
+#         # 定义输入和输出不可约表示
+#         if data_rep == 'xyz':
+#             # 关节位置表示
+#             self.irreps_in = o3.Irreps(f"{latent_dim//3}x0e + {latent_dim//3}x1o")
+#             self.irreps_out = o3.Irreps(f"{input_feats//3}x1o")  # 输出为向量表示
+#         elif data_rep == 'rot6d':
+#             # 旋转表示
+#             self.irreps_in = o3.Irreps(f"{latent_dim//3}x0e + {latent_dim//3}x1o + {latent_dim//3}x2e")
+#             self.irreps_out = o3.Irreps(f"{input_feats//6}x0e + {input_feats//6}x1o + {input_feats//6}x2e")
+#         elif data_rep == 'hml_vec':
+#             # HumanML3D向量表示
+#             self.irreps_in = o3.Irreps(f"{latent_dim//2}x0e + {latent_dim//2}x1o")
+#             self.irreps_out = o3.Irreps(f"{input_feats//3}x0e + {input_feats//3}x1o")
+#         else:
+#             # 默认表示
+#             self.irreps_in = o3.Irreps(f"{latent_dim}x0e")
+#             self.irreps_out = o3.Irreps(f"{input_feats}x0e")
+        
+#         # 等变线性层
+#         self.poseFinal = Linear(
+#             irreps_in=self.irreps_in,
+#             irreps_out=self.irreps_out,
+#             biases=True
+#         )
+        
+#         if self.data_rep == 'rot_vel':
+#             self.velFinal = Linear(
+#                 irreps_in=self.irreps_in,
+#                 irreps_out=self.irreps_out,
+#                 biases=True
+#             )
+    
+#     def forward(self, output):
+#         nframes, bs, d = output.shape
+        
+#         # 将transformer输出转换为等变表示
+#         output = self.from_transformer(output)  # [nframes, bs, latent_dim]
+        
+#         if self.data_rep in ['rot6d', 'xyz', 'hml_vec']:
+#             # 应用等变层
+#             output = self.poseFinal(output)  # [nframes, bs, input_feats]
+#         elif self.data_rep == 'rot_vel':
+#             first_pose = output[[0]]  # [1, bs, latent_dim] 
+#             first_pose = self.poseFinal(first_pose)  # [1, bs, input_feats]
+            
+#             vel = output[1:]  # [nframes-1, bs, latent_dim]
+#             vel = self.velFinal(vel)  # [nframes-1, bs, input_feats]
+            
+#             output = torch.cat((first_pose, vel), axis=0)  # [nframes, bs, input_feats]
+#         else:
+#             raise ValueError(f"Unsupported data representation: {self.data_rep}")
+        
+#         # 恢复原始形状
+#         output = output.reshape(nframes, bs, self.njoints, self.nfeats)
+#         output = output.permute(1, 2, 3, 0)  # [bs, njoints, nfeats, nframes]
+        
+#         return output
+
+# simpler one
+class EquivariantOutputProcess(nn.Module):
+    def __init__(self, data_rep, input_feats, latent_dim, njoints, nfeats):
+        super().__init__()
+        self.data_rep = data_rep
+        self.input_feats = input_feats
+        self.latent_dim = latent_dim
+        self.njoints = njoints
+        self.nfeats = nfeats
+        
+        print(f"Output - Data rep: {data_rep}, Input feats: {input_feats}, Latent dim: {latent_dim}")
+        
+        # Simplified representation, treat everything as scalars
+        self.irreps_in = o3.Irreps(f"{latent_dim}x0e")
+        self.irreps_out = o3.Irreps(f"{input_feats}x0e")
+        
+        # Equivariant linear layer
+        self.poseFinal = Linear(
+            irreps_in=self.irreps_in,
+            irreps_out=self.irreps_out,
+            biases=True
+        )
+        
+        if self.data_rep == 'rot_vel':
+            self.velFinal = Linear(
+                irreps_in=self.irreps_in,
+                irreps_out=self.irreps_out,
+                biases=True
+            )
+    
+    def forward(self, output):
+        nframes, bs, d = output.shape
+        print(f"Output shape before processing: {output.shape}")
+        
+        if self.data_rep in ['rot6d', 'xyz', 'hml_vec']:
+            # Apply equivariant layer
+            output = self.poseFinal(output)  # [nframes, bs, input_feats]
+        elif self.data_rep == 'rot_vel':
+            first_pose = output[[0]]  # [1, bs, latent_dim]
+            first_pose = self.poseFinal(first_pose)  # [1, bs, input_feats]
+            
+            vel = output[1:]  # [nframes-1, bs, latent_dim]
+            vel = self.velFinal(vel)  # [nframes-1, bs, input_feats]
+            
+            output = torch.cat((first_pose, vel), axis=0)  # [nframes, bs, input_feats]
+        else:
+            raise ValueError(f"Unsupported data representation: {self.data_rep}")
+        
+        # Restore original shape
+        print(f"Output shape after processing: {output.shape}")
+        output = output.reshape(nframes, bs, self.njoints, self.nfeats)
+        output = output.permute(1, 2, 3, 0)  # [bs, njoints, nfeats, nframes]
+        
+        return output
 
 class EmbedAction(nn.Module):
     def __init__(self, num_actions, latent_dim):
